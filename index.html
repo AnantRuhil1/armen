@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>AR Menu — Lumière</title>
+
+  <!-- A-Frame FIRST, then MindAR -->
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, 'SF Pro Display', Georgia, serif; }
+
+    /* ════════════════════════════════════════════════
+       START / PERMISSION SCREEN
+    ════════════════════════════════════════════════ */
+    #start-screen {
+      position: fixed; inset: 0; z-index: 1000;
+      background: radial-gradient(ellipse at 50% 0%, #1a1206 0%, #0a0a0a 70%);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 28px; padding: 48px 36px; text-align: center;
+    }
+    .s-ring {
+      position: relative;
+      width: 90px; height: 90px;
+    }
+    .s-ring::before {
+      content: '';
+      position: absolute; inset: 0;
+      border-radius: 50%;
+      border: 1px solid rgba(212,175,55,.3);
+      animation: ringPulse 2.4s ease-in-out infinite;
+    }
+    @keyframes ringPulse {
+      0%,100% { transform: scale(1);   opacity: .4; }
+      50%      { transform: scale(1.18); opacity: .15; }
+    }
+    .s-logo {
+      position: absolute; inset: 8px;
+      border: 1.5px solid rgba(212,175,55,.75);
+      border-radius: 50%;
+      background: rgba(212,175,55,.06);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 32px; color: #D4AF37;
+    }
+    .s-name {
+      font-family: 'Palatino Linotype', Palatino, serif;
+      font-size: 2.4rem; font-weight: 400;
+      letter-spacing: .24em; color: #D4AF37;
+      text-shadow: 0 0 40px rgba(212,175,55,.25);
+    }
+    .s-tagline {
+      font-size: .68rem; letter-spacing: .22em;
+      color: rgba(212,175,55,.45); text-transform: uppercase;
+      margin-top: -18px;
+    }
+    .s-hint {
+      font-size: .9rem; color: rgba(255,255,255,.4);
+      line-height: 1.7; max-width: 260px;
+    }
+    #start-btn {
+      padding: 18px 52px;
+      background: linear-gradient(135deg, #D4AF37 0%, #b8922a 100%);
+      color: #0a0a0a;
+      border: none; border-radius: 100px;
+      font-size: 1rem; font-weight: 700; letter-spacing: .12em;
+      cursor: pointer; -webkit-appearance: none; appearance: none;
+      box-shadow: 0 8px 32px rgba(212,175,55,.28);
+      transition: transform .15s, opacity .15s;
+    }
+    #start-btn:active  { transform: scale(.96); opacity: .85; }
+    #start-btn:disabled { opacity: .5; cursor: default; }
+    #err-box {
+      display: none;
+      background: rgba(220,60,60,.1);
+      border: 1px solid rgba(220,60,60,.35);
+      backdrop-filter: blur(8px);
+      border-radius: 16px; padding: 18px 20px;
+      font-size: .8rem; color: rgba(255,160,160,.9);
+      max-width: 300px; line-height: 1.7; text-align: left;
+      white-space: pre-line;
+    }
+
+    /* ════════════════════════════════════════════════
+       AR WRAPPER
+    ════════════════════════════════════════════════ */
+    #ar-wrapper { display: none; position: fixed; inset: 0; z-index: 0; }
+    #ar-wrapper.active { display: block; }
+    #ar-scene { width: 100vw !important; height: 100vh !important; }
+
+    /* ════════════════════════════════════════════════
+       HUD — brand header
+    ════════════════════════════════════════════════ */
+    #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; display: none; }
+    #brand {
+      padding: 54px 24px 18px;   /* 54px top = below iOS notch */
+      background: linear-gradient(180deg, rgba(0,0,0,.82) 0%, transparent 100%);
+      display: flex; align-items: center; gap: 12px;
+    }
+    #brand-logo {
+      width: 38px; height: 38px;
+      border: 1.5px solid rgba(212,175,55,.75); border-radius: 50%;
+      background: rgba(212,175,55,.08);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; color: #D4AF37;
+    }
+    #brand-text { display: flex; flex-direction: column; gap: 1px; }
+    #brand-name {
+      font-family: 'Palatino Linotype', Palatino, serif;
+      letter-spacing: .2em; font-size: 1.1rem;
+      color: #D4AF37; text-transform: uppercase; font-weight: 400;
+    }
+    #brand-tagline { font-size: .58rem; letter-spacing: .18em; color: rgba(212,175,55,.5); text-transform: uppercase; }
+    #scan-status {
+      margin-left: auto;
+      font-size: .6rem; letter-spacing: .12em;
+      color: rgba(255,255,255,.45); text-transform: uppercase;
+      display: flex; align-items: center; gap: 7px;
+    }
+    #scan-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #D4AF37; box-shadow: 0 0 8px #D4AF37;
+      transition: background .4s, box-shadow .4s;
+      animation: dotBlink 1.8s ease-in-out infinite;
+    }
+    @keyframes dotBlink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    /* ════════════════════════════════════════════════
+       RETICLE
+    ════════════════════════════════════════════════ */
+    #reticle {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(72vw, 270px); height: min(72vw, 270px);
+      pointer-events: none; z-index: 10;
+      display: none; transition: opacity .5s;
+    }
+    #reticle.hidden { opacity: 0; }
+
+    /* ════════════════════════════════════════════════
+       BOTTOM CAPTION
+    ════════════════════════════════════════════════ */
+    #caption {
+      position: fixed; bottom: 0; left: 0; width: 100%;
+      padding: 20px 28px 44px;
+      background: linear-gradient(0deg, rgba(0,0,0,.78) 0%, transparent 100%);
+      pointer-events: none; z-index: 10;
+      display: none; opacity: 0; transition: opacity .6s .2s;
+    }
+    #caption.visible { opacity: 1; }
+    #caption-dish {
+      display: block;
+      font-family: 'Palatino Linotype', Palatino, serif;
+      font-size: 1.45rem; color: #fff;
+      letter-spacing: .04em; margin-bottom: 5px;
+    }
+    #caption-sub {
+      font-size: .68rem; color: rgba(212,175,55,.85);
+      letter-spacing: .16em; text-transform: uppercase;
+    }
+
+    /* ════════════════════════════════════════════════
+       GLASSMORPHISM CARDS
+       These are HTML overlay cards positioned over
+       the A-Frame canvas via CSS — this gives TRUE
+       backdrop-filter blur, rounded corners, and the
+       iPhone-style frosted glass that A-Frame text
+       panels can never replicate.
+    ════════════════════════════════════════════════ */
+    #cards-overlay {
+      position: fixed; inset: 0;
+      pointer-events: none; z-index: 8;
+      display: none;
+      /* We'll use JS to show/hide on targetFound/Lost */
+    }
+
+    .glass-card {
+      position: absolute;
+      /* Core glassmorphism */
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 24px;
+      /* Premium shadow depth */
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.45),
+        0 2px 8px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+      padding: 20px 22px;
+      /* Animate in when target found */
+      opacity: 0;
+      transform: translateY(8px) scale(0.96);
+      transition: opacity .45s cubic-bezier(.22,1,.36,1),
+                  transform .45s cubic-bezier(.22,1,.36,1);
+    }
+    .glass-card.visible {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+
+    /* Gold top accent line */
+    .glass-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 20px; right: 20px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(212,175,55,.7), transparent);
+      border-radius: 1px;
+    }
+
+    /* ── Price card — left side ── */
+    #price-card {
+      left: 5%;
+      top: 50%;
+      transform: translateY(-50%) scale(0.96);
+      width: 44%;
+      max-width: 180px;
+      transition: opacity .45s cubic-bezier(.22,1,.36,1),
+                  transform .45s cubic-bezier(.22,1,.36,1);
+    }
+    #price-card.visible {
+      opacity: 1;
+      transform: translateY(-50%) scale(1);
+    }
+
+    /* ── Ingredients card — right side ── */
+    #ing-card {
+      right: 5%;
+      top: 50%;
+      transform: translateY(-50%) scale(0.96);
+      width: 44%;
+      max-width: 180px;
+      transition: opacity .45s .08s cubic-bezier(.22,1,.36,1),
+                  transform .45s .08s cubic-bezier(.22,1,.36,1);
+    }
+    #ing-card.visible {
+      opacity: 1;
+      transform: translateY(-50%) scale(1);
+    }
+
+    /* ── Card internals ── */
+    .card-label {
+      font-size: .55rem;
+      letter-spacing: .22em;
+      text-transform: uppercase;
+      color: rgba(212,175,55,.85);
+      font-weight: 600;
+      margin-bottom: 10px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .card-label::after {
+      content: '';
+      flex: 1; height: 1px;
+      background: rgba(212,175,55,.25);
+    }
+    .price-value {
+      font-family: 'Palatino Linotype', Palatino, serif;
+      font-size: 2rem; font-weight: 400;
+      color: #fff;
+      letter-spacing: -.01em;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .price-currency {
+      font-size: .75rem;
+      vertical-align: super;
+      margin-right: 2px;
+      color: rgba(255,255,255,.65);
+    }
+    .price-note {
+      font-size: .62rem;
+      color: rgba(255,255,255,.4);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .ing-list {
+      list-style: none;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .ing-list li {
+      display: flex; align-items: flex-start; gap: 8px;
+      font-size: .72rem;
+      color: rgba(255,255,255,.8);
+      line-height: 1.35;
+    }
+    .ing-list li::before {
+      content: '✦';
+      font-size: .45rem;
+      color: rgba(212,175,55,.7);
+      margin-top: 3px;
+      flex-shrink: 0;
+    }
+
+    /* ── Connector lines (SVG overlay) ── */
+    #connector-svg {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+      pointer-events: none; z-index: 7;
+      display: none;
+      opacity: 0; transition: opacity .5s .15s;
+    }
+    #connector-svg.visible { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<!-- ════════════ START SCREEN ════════════════════════════════════════════ -->
+<div id="start-screen">
+  <div class="s-ring">
+    <div class="s-logo">✦</div>
+  </div>
+  <div>
+    <div class="s-name">Lumière</div>
+    <div class="s-tagline">Fine Dining · Augmented Experience</div>
+  </div>
+  <p class="s-hint">Tap below to open the AR camera and bring your menu to life.</p>
+  <button id="start-btn" onclick="startAR()">Open Camera &nbsp;✦</button>
+  <div id="err-box"></div>
+</div>
+
+
+<!-- ════════════ AR SCENE ════════════════════════════════════════════════ -->
+<div id="ar-wrapper">
+  <a-scene
+    id="ar-scene"
+    mindar-image="
+      imageTargetSrc: targets.mind;
+      autoStart: true;
+      uiLoading: no;
+      uiScanning: no;
+      uiError: no;
+      filterMinCF: 0.001;
+      filterBeta: 0.001;
+    "
+    color-space="sRGB"
+    renderer="colorManagement: true; physicallyCorrectLights: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+    embedded
+  >
+    <a-assets>
+      <!-- ★ Change "dish.glb" to your model filename if different -->
+      <a-asset-item id="dish-model" src="dish.glb"></a-asset-item>
+    </a-assets>
+
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+    <a-entity id="ar-target" mindar-image-target="targetIndex: 0">
+
+      <!-- Lights -->
+      <a-light type="ambient"     color="#ffffff" intensity="0.8"></a-light>
+      <a-light type="directional" color="#fff8ee" intensity="1.6" position="1 2 1"></a-light>
+      <a-light type="point"       color="#D4AF37" intensity="0.6" position="-1 1 0.5"></a-light>
+      <a-light type="point"       color="#ffffff" intensity="0.3" position="0 -1 1"></a-light>
+
+      <!-- ══════════════════════════════════════════════════════════
+           3D DISH MODEL
+           
+           SCALE GUIDE — adjust until it looks right on your marker:
+             0.25  → small (sushi, dessert cup)
+             0.40  → medium plate (our default)
+             0.60  → large (pizza, whole fish)
+             0.80  → very large (for big printed markers)
+           
+           POSITION: y moves it up/down above the marker.
+                     Increase y if model clips through the card.
+           ══════════════════════════════════════════════════════════ -->
+      <a-entity
+        id="dish"
+        gltf-model="#dish-model"
+        scale="0.40 0.40 0.40"
+        position="0 0.15 0"
+        rotation="-20 0 0"
+        animation="property:rotation; to:-20 360 0; loop:true; dur:11000; easing:linear"
+        animation__float="property:position; from:0 0.12 0; to:0 0.20 0; loop:true; dur:2800; dir:alternate; easing:easeInOutSine"
+      ></a-entity>
+
+      <!-- Gold glow ring under dish — scaled to match -->
+      <a-circle
+        radius="0.32" position="0 0.003 0" rotation="-90 0 0"
+        material="color:#D4AF37; opacity:0.12; transparent:true; shader:flat"
+      ></a-circle>
+      <!-- Tighter inner ring -->
+      <a-circle
+        radius="0.18" position="0 0.004 0" rotation="-90 0 0"
+        material="color:#D4AF37; opacity:0.18; transparent:true; shader:flat"
+      ></a-circle>
+
+    </a-entity>
+  </a-scene>
+</div>
+
+
+<!-- ════════════ GLASSMORPHISM CARDS OVERLAY ═════════════════════════════
+     These sit on top of the AR canvas as real HTML elements so we get
+     true backdrop-filter blur — impossible inside A-Frame.
+════════════════════════════════════════════════════════════════════════ -->
+<div id="cards-overlay">
+
+  <!-- Price card — left -->
+  <div class="glass-card" id="price-card">
+    <div class="card-label">Price</div>
+    <!-- ★ CHANGE YOUR PRICE HERE ↓ -->
+    <div class="price-value"><span class="price-currency">₹</span>1,450</div>
+    <div class="price-note">Per serving · excl. tax</div>
+  </div>
+
+  <!-- Ingredients card — right -->
+  <div class="glass-card" id="ing-card">
+    <div class="card-label">Ingredients</div>
+    <!-- ★ CHANGE YOUR INGREDIENTS HERE ↓ -->
+    <ul class="ing-list">
+      <li>Pan-seared sea bass</li>
+      <li>Saffron beurre blanc</li>
+      <li>Micro radish &amp; herbs</li>
+      <li>Truffle oil drizzle</li>
+      <li>Fleur de sel</li>
+    </ul>
+  </div>
+
+</div>
+
+<!-- Connector lines between cards and dish -->
+<svg id="connector-svg" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="dot-l" markerWidth="5" markerHeight="5" refX="2.5" refY="2.5">
+      <circle cx="2.5" cy="2.5" r="2" fill="rgba(212,175,55,0.7)"/>
+    </marker>
+    <marker id="dot-r" markerWidth="5" markerHeight="5" refX="2.5" refY="2.5">
+      <circle cx="2.5" cy="2.5" r="2" fill="rgba(212,175,55,0.7)"/>
+    </marker>
+  </defs>
+  <!-- Lines drawn by JS after layout is known -->
+  <line id="line-price" stroke="rgba(212,175,55,0.45)" stroke-width="1"
+        stroke-dasharray="4 4" marker-start="url(#dot-l)" marker-end="url(#dot-l)"/>
+  <line id="line-ing"   stroke="rgba(212,175,55,0.45)" stroke-width="1"
+        stroke-dasharray="4 4" marker-start="url(#dot-r)" marker-end="url(#dot-r)"/>
+</svg>
+
+
+<!-- ════════════ HUD ══════════════════════════════════════════════════════ -->
+<div id="hud">
+  <div id="brand">
+    <div id="brand-logo">✦</div>
+    <div id="brand-text">
+      <span id="brand-name">Lumière</span>
+      <span id="brand-tagline">Fine Dining · Augmented Experience</span>
+    </div>
+    <span id="scan-status">
+      <span id="scan-dot"></span>
+      <span id="scan-text">Scan marker</span>
+    </span>
+  </div>
+</div>
+
+<!-- Reticle -->
+<div id="reticle">
+  <svg viewBox="0 0 270 270" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M22 78 L22 22 L78 22" stroke="#D4AF37" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M192 22 L248 22 L248 78" stroke="#D4AF37" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M248 192 L248 248 L192 248" stroke="#D4AF37" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M78 248 L22 248 L22 192" stroke="#D4AF37" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="135" y1="122" x2="135" y2="148" stroke="#D4AF37" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
+    <line x1="122" y1="135" x2="148" y2="135" stroke="#D4AF37" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
+    <line x1="42" y1="135" x2="228" y2="135" stroke="#D4AF37" stroke-width="0.8" opacity="0.28">
+      <animateTransform attributeName="transform" type="translate" values="0,-72;0,72;0,-72" dur="2.4s" repeatCount="indefinite"/>
+    </line>
+  </svg>
+</div>
+
+<!-- Caption -->
+<div id="caption">
+  <!-- ★ CHANGE DISH NAME HERE ↓ -->
+  <span id="caption-dish">Seared Sea Bass</span>
+  <span id="caption-sub">Signature · Chef's Recommendation</span>
+</div>
+
+
+<!-- ════════════ JAVASCRIPT ══════════════════════════════════════════════ -->
+<script>
+  // ── Draw connector lines from card edges toward screen centre ─────────
+  function updateConnectors() {
+    const sw = window.innerWidth, sh = window.innerHeight;
+    const cx = sw / 2, cy = sh / 2;
+
+    const pc = document.getElementById('price-card').getBoundingClientRect();
+    const ic = document.getElementById('ing-card').getBoundingClientRect();
+
+    // Price card: line from its right edge mid → centre
+    const lp = document.getElementById('line-price');
+    lp.setAttribute('x1', pc.right + 6);
+    lp.setAttribute('y1', pc.top + pc.height / 2);
+    lp.setAttribute('x2', cx - 60);
+    lp.setAttribute('y2', cy);
+
+    // Ingredients card: line from its left edge mid → centre
+    const li = document.getElementById('line-ing');
+    li.setAttribute('x1', ic.left - 6);
+    li.setAttribute('y1', ic.top + ic.height / 2);
+    li.setAttribute('x2', cx + 60);
+    li.setAttribute('y2', cy);
+  }
+
+  function showCards() {
+    document.getElementById('cards-overlay').style.display = 'block';
+    document.getElementById('connector-svg').style.display = 'block';
+    requestAnimationFrame(() => {
+      document.getElementById('price-card').classList.add('visible');
+      document.getElementById('ing-card').classList.add('visible');
+      document.getElementById('connector-svg').classList.add('visible');
+      updateConnectors();
+    });
+  }
+
+  function hideCards() {
+    document.getElementById('price-card').classList.remove('visible');
+    document.getElementById('ing-card').classList.remove('visible');
+    document.getElementById('connector-svg').classList.remove('visible');
+    setTimeout(() => {
+      document.getElementById('cards-overlay').style.display = 'none';
+      document.getElementById('connector-svg').style.display = 'none';
+    }, 500);
+  }
+
+  // ── Main AR start ──────────────────────────────────────────────────────
+  async function startAR() {
+    const btn    = document.getElementById('start-btn');
+    const errBox = document.getElementById('err-box');
+
+    btn.textContent = 'Starting…';
+    btn.disabled = true;
+    errBox.style.display = 'none';
+
+    // Explicit camera permission request (required before autoStart)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      stream.getTracks().forEach(t => t.stop());
+    } catch (err) {
+      let msg = '⚠ Camera error: ';
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        msg += 'Permission denied.\n\nFix: tap the lock/camera icon in your browser address bar → Allow → reload.';
+      } else if (err.name === 'NotFoundError') {
+        msg += 'No camera found on this device.';
+      } else if (err.name === 'NotReadableError') {
+        msg += 'Camera is busy (another app may be using it). Close other apps and try again.';
+      } else {
+        msg += err.name + ': ' + err.message;
+      }
+      errBox.textContent = msg;
+      errBox.style.display = 'block';
+      btn.textContent = 'Try Again';
+      btn.disabled = false;
+      return;
+    }
+
+    // Show AR
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('ar-wrapper').classList.add('active');
+    document.getElementById('hud').style.display     = 'block';
+    document.getElementById('reticle').style.display = 'block';
+    document.getElementById('caption').style.display = 'block';
+
+    const scene  = document.getElementById('ar-scene');
+    const target = document.getElementById('ar-target');
+
+    scene.addEventListener('arReady', () => console.log('[AR] Ready'));
+
+    scene.addEventListener('arError', (e) => {
+      console.error('[AR] Error:', e.detail);
+      document.getElementById('ar-wrapper').classList.remove('active');
+      document.getElementById('hud').style.display     = 'none';
+      document.getElementById('reticle').style.display = 'none';
+      document.getElementById('caption').style.display = 'none';
+      hideCards();
+      document.getElementById('start-screen').style.display = 'flex';
+      errBox.textContent = 'AR error: make sure targets.mind and dish.glb are uploaded to the same folder.\n\nDetail: ' + (e.detail || 'unknown');
+      errBox.style.display = 'block';
+      btn.textContent = 'Try Again';
+      btn.disabled = false;
+    });
+
+    target.addEventListener('targetFound', () => {
+      document.getElementById('reticle').classList.add('hidden');
+      document.getElementById('caption').classList.add('visible');
+      document.getElementById('scan-text').textContent = 'Target locked';
+      const dot = document.getElementById('scan-dot');
+      dot.style.background = '#5aff8a';
+      dot.style.boxShadow  = '0 0 10px #5aff8a';
+      showCards();
+    });
+
+    target.addEventListener('targetLost', () => {
+      document.getElementById('reticle').classList.remove('hidden');
+      document.getElementById('caption').classList.remove('visible');
+      document.getElementById('scan-text').textContent = 'Scan marker';
+      const dot = document.getElementById('scan-dot');
+      dot.style.background = '#D4AF37';
+      dot.style.boxShadow  = '0 0 8px #D4AF37';
+      hideCards();
+    });
+
+    window.addEventListener('resize', () => {
+      if (document.getElementById('price-card').classList.contains('visible')) {
+        updateConnectors();
+      }
+    });
+  }
+</script>
+
+</body>
+</html>

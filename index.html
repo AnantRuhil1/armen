@@ -140,7 +140,7 @@
       pointer-events: none; z-index: 10;
       display: none; transition: opacity .5s;
     }
-    #reticle.hidden { opacity: 0; }
+    #reticle.hidden { opacity: 0; display: none !important; pointer-events: none; }
 
     /* ════════════════════════════════════════════════
        BOTTOM CAPTION
@@ -441,9 +441,9 @@
   </defs>
   <!-- Lines drawn by JS after layout is known -->
   <line id="line-price" stroke="rgba(212,175,55,0.45)" stroke-width="1"
-        stroke-dasharray="4 4" marker-start="url(#dot-l)" marker-end="url(#dot-l)"/>
-  <line id="line-ing"   stroke="rgba(212,175,55,0.45)" stroke-width="1"
         stroke-dasharray="4 4" marker-start="url(#dot-r)" marker-end="url(#dot-r)"/>
+  <line id="line-ing"   stroke="rgba(212,175,55,0.45)" stroke-width="1"
+        stroke-dasharray="4 4" marker-start="url(#dot-l)" marker-end="url(#dot-l)"/>
 </svg>
 
 

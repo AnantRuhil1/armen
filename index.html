@@ -87,46 +87,6 @@
     }
 
     /* ════════════════════════════════════════════════
-       LOADING OVERLAY
-    ════════════════════════════════════════════════ */
-    #loading-overlay {
-      position: fixed; inset: 0; z-index: 999;
-      background: radial-gradient(ellipse at 50% 0%, #1a1206 0%, #0a0a0a 70%);
-      display: none; flex-direction: column;
-      align-items: center; justify-content: center;
-      gap: 24px; opacity: 1;
-      transition: opacity .6s ease-out;
-    }
-    #loading-overlay.fade-out {
-      opacity: 0;
-      pointer-events: none;
-    }
-    .loader {
-      position: relative;
-      width: 80px; height: 80px;
-    }
-    .loader::before {
-      content: '';
-      position: absolute; inset: 0;
-      border-radius: 50%;
-      border: 2px solid rgba(212,175,55,.2);
-      border-top-color: rgba(212,175,55,.9);
-      animation: spin .9s linear infinite;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    #loading-text {
-      font-size: .95rem; color: rgba(212,175,55,.8);
-      letter-spacing: .12em; text-transform: uppercase;
-      animation: pulse-text 1.8s ease-in-out infinite;
-    }
-    @keyframes pulse-text {
-      0%,100% { opacity: .6; }
-      50% { opacity: 1; }
-    }
-
-    /* ════════════════════════════════════════════════
        AR WRAPPER
     ════════════════════════════════════════════════ */
     #ar-wrapper { display: none; position: fixed; inset: 0; z-index: 0; }
@@ -366,11 +326,6 @@
   <div id="err-box"></div>
 </div>
 
-<!-- ════════════ LOADING OVERLAY ═════════════════════════════════════════ -->
-<div id="loading-overlay">
-  <div class="loader"></div>
-  <div id="loading-text">Initializing AR…</div>
-</div>
 
 <!-- ════════════ AR SCENE ════════════════════════════════════════════════ -->
 <div id="ar-wrapper">
@@ -422,9 +377,11 @@
         id="dish"
         gltf-model="#dish-model"
         scale="1.0 1.0 1.0"
+        position="0 0.15 0"
         position="0 0.05 0"
         rotation="-20 0 0"
         animation="property:rotation; to:-20 360 0; loop:true; dur:11000; easing:linear"
+        animation__float="property:position; from:0 0.12 0; to:0 0.20 0; loop:true; dur:2800; dir:alternate; easing:easeInOutSine"
         animation__float="property:position; from:0 0.02 0; to:0 0.10 0; loop:true; dur:2800; dir:alternate; easing:easeInOutSine"
       ></a-entity>
 
@@ -576,20 +533,6 @@
     }, 500);
   }
 
-  // ── Show/hide loading overlay ──────────────────────────────────────────
-  function showLoading() {
-    document.getElementById('loading-overlay').style.display = 'flex';
-  }
-
-  function hideLoading() {
-    const overlay = document.getElementById('loading-overlay');
-    overlay.classList.add('fade-out');
-    setTimeout(() => {
-      overlay.style.display = 'none';
-      overlay.classList.remove('fade-out');
-    }, 600);
-  }
-
   // ── Main AR start ──────────────────────────────────────────────────────
   async function startAR() {
     const btn    = document.getElementById('start-btn');
@@ -598,9 +541,8 @@
     btn.textContent = 'Starting…';
     btn.disabled = true;
     errBox.style.display = 'none';
-    showLoading();
 
-    // Step 1: Request camera permission
+    // Explicit camera permission request (required before autoStart)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -622,11 +564,10 @@
       errBox.style.display = 'block';
       btn.textContent = 'Try Again';
       btn.disabled = false;
-      hideLoading();
       return;
     }
 
-    // Show AR (autoStart: true will trigger now that permission is granted)
+    // Show AR
     document.getElementById('start-screen').style.display = 'none';
     document.getElementById('ar-wrapper').classList.add('active');
     document.getElementById('hud').style.display     = 'block';
@@ -636,14 +577,10 @@
     const scene  = document.getElementById('ar-scene');
     const target = document.getElementById('ar-target');
 
-    scene.addEventListener('arReady', () => {
-      console.log('[AR] Ready');
-      hideLoading();
-    });
+    scene.addEventListener('arReady', () => console.log('[AR] Ready'));
 
     scene.addEventListener('arError', (e) => {
       console.error('[AR] Error:', e.detail);
-      hideLoading();
       document.getElementById('ar-wrapper').classList.remove('active');
       document.getElementById('hud').style.display     = 'none';
       document.getElementById('reticle').style.display = 'none';
@@ -681,21 +618,6 @@
         updateConnectors();
       }
     });
-  }
-
-  // ── Show/hide loading overlay ──────────────────────────────────────────
-  function showLoading() {
-    document.getElementById('loading-overlay').style.display = 'flex';
-  }
-
-  function hideLoading() {
-    const overlay = document.getElementById('loading-overlay');
-    if (!overlay) return;
-    overlay.classList.add('fade-out');
-    setTimeout(() => {
-      overlay.style.display = 'none';
-      overlay.classList.remove('fade-out');
-    }, 600);
   }
 </script>
 

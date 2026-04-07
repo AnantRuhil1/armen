@@ -372,7 +372,6 @@
   <div id="loading-text">Initializing AR…</div>
 </div>
 
-
 <!-- ════════════ AR SCENE ════════════════════════════════════════════════ -->
 <div id="ar-wrapper">
   <a-scene
@@ -537,7 +536,6 @@
   let arScene = null;
   let arTarget = null;
   let arInitialized = false;
-  let cameraDenied = false;
 
   // ── Draw connector lines ───────────────────────────────────────────────
   function updateConnectors() {
@@ -547,12 +545,14 @@
     const pc = document.getElementById('price-card').getBoundingClientRect();
     const ic = document.getElementById('ing-card').getBoundingClientRect();
 
+    // Price card: line from its right edge mid → centre
     const lp = document.getElementById('line-price');
     lp.setAttribute('x1', pc.right + 6);
     lp.setAttribute('y1', pc.top + pc.height / 2);
     lp.setAttribute('x2', cx - 60);
     lp.setAttribute('y2', cy);
 
+    // Ingredients card: line from its left edge mid → centre
     const li = document.getElementById('line-ing');
     li.setAttribute('x1', ic.left - 6);
     li.setAttribute('y1', ic.top + ic.height / 2);
@@ -595,38 +595,7 @@
     }, 600);
   }
 
-  // ── Request camera permission ──────────────────────────────────────────
-  async function requestCameraPermission() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      });
-      // Stop immediately after confirming permission
-      stream.getTracks().forEach(t => t.stop());
-      cameraDenied = false;
-      return true;
-    } catch (err) {
-      cameraDenied = true;
-      let msg = '⚠ Camera error: ';
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        msg += 'Permission denied.\n\nFix: tap the lock/camera icon in your browser address bar → Allow → reload.';
-      } else if (err.name === 'NotFoundError') {
-        msg += 'No camera found on this device.';
-      } else if (err.name === 'NotReadableError') {
-        msg += 'Camera is busy (another app may be using it). Close other apps and try again.';
-      } else {
-        msg += err.name + ': ' + err.message;
-      }
-      return { error: msg };
-    }
-  }
-
-  // ── Main AR start function ─────────────────────────────────────────────
+  // ── Main AR start ──────────────────────────────────────────────────────
   async function startAR() {
     const btn    = document.getElementById('start-btn');
     const errBox = document.getElementById('err-box');
@@ -637,9 +606,24 @@
     showLoading();
 
     // Step 1: Request camera permission
-    const permResult = await requestCameraPermission();
-    if (permResult.error) {
-      errBox.textContent = permResult.error;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      stream.getTracks().forEach(t => t.stop());
+    } catch (err) {
+      let msg = '⚠ Camera error: ';
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        msg += 'Permission denied.\n\nFix: tap the lock/camera icon in your browser address bar → Allow → reload.';
+      } else if (err.name === 'NotFoundError') {
+        msg += 'No camera found on this device.';
+      } else if (err.name === 'NotReadableError') {
+        msg += 'Camera is busy (another app may be using it). Close other apps and try again.';
+      } else {
+        msg += err.name + ': ' + err.message;
+      }
+      errBox.textContent = msg;
       errBox.style.display = 'block';
       btn.textContent = 'Try Again';
       btn.disabled = false;
@@ -654,18 +638,17 @@
     document.getElementById('reticle').style.display = 'block';
     document.getElementById('caption').style.display = 'block';
 
-    // Get scene and target references
+    // Step 3: Get scene and target references
     arScene = document.getElementById('ar-scene');
     arTarget = document.getElementById('ar-target');
 
-    // Step 3: Set up AR event listeners (only once)
+    // Step 4: Set up AR event listeners (only once)
     if (!arInitialized) {
       setupAREventListeners();
       arInitialized = true;
     }
 
-    // Step 4: Start the AR scene
-    // MindAR's autoStart: false requires manual .start()
+    // Step 5: Start the AR scene manually
     // Wait a tick for A-Frame to be fully ready
     await new Promise(resolve => setTimeout(resolve, 100));
 

@@ -87,6 +87,46 @@
     }
 
     /* ════════════════════════════════════════════════
+       LOADING OVERLAY
+    ════════════════════════════════════════════════ */
+    #loading-overlay {
+      position: fixed; inset: 0; z-index: 999;
+      background: radial-gradient(ellipse at 50% 0%, #1a1206 0%, #0a0a0a 70%);
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 24px; opacity: 1;
+      transition: opacity .6s ease-out;
+    }
+    #loading-overlay.fade-out {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .loader {
+      position: relative;
+      width: 80px; height: 80px;
+    }
+    .loader::before {
+      content: '';
+      position: absolute; inset: 0;
+      border-radius: 50%;
+      border: 2px solid rgba(212,175,55,.2);
+      border-top-color: rgba(212,175,55,.9);
+      animation: spin .9s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    #loading-text {
+      font-size: .95rem; color: rgba(212,175,55,.8);
+      letter-spacing: .12em; text-transform: uppercase;
+      animation: pulse-text 1.8s ease-in-out infinite;
+    }
+    @keyframes pulse-text {
+      0%,100% { opacity: .6; }
+      50% { opacity: 1; }
+    }
+
+    /* ════════════════════════════════════════════════
        AR WRAPPER
     ════════════════════════════════════════════════ */
     #ar-wrapper { display: none; position: fixed; inset: 0; z-index: 0; }
@@ -326,6 +366,12 @@
   <div id="err-box"></div>
 </div>
 
+<!-- ════════════ LOADING OVERLAY ═════════════════════════════════════════ -->
+<div id="loading-overlay">
+  <div class="loader"></div>
+  <div id="loading-text">Initializing AR…</div>
+</div>
+
 
 <!-- ════════════ AR SCENE ════════════════════════════════════════════════ -->
 <div id="ar-wrapper">
@@ -333,7 +379,7 @@
     id="ar-scene"
     mindar-image="
       imageTargetSrc: targets.mind;
-      autoStart: true;
+      autoStart: false;
       uiLoading: no;
       uiScanning: no;
       uiError: no;
@@ -487,7 +533,13 @@
 
 <!-- ════════════ JAVASCRIPT ══════════════════════════════════════════════ -->
 <script>
-  // ── Draw connector lines from card edges toward screen centre ─────────
+  // ── Global state ───────────────────────────────────────────────────────
+  let arScene = null;
+  let arTarget = null;
+  let arInitialized = false;
+  let cameraDenied = false;
+
+  // ── Draw connector lines ───────────────────────────────────────────────
   function updateConnectors() {
     const sw = window.innerWidth, sh = window.innerHeight;
     const cx = sw / 2, cy = sh / 2;
@@ -495,14 +547,12 @@
     const pc = document.getElementById('price-card').getBoundingClientRect();
     const ic = document.getElementById('ing-card').getBoundingClientRect();
 
-    // Price card: line from its right edge mid → centre
     const lp = document.getElementById('line-price');
     lp.setAttribute('x1', pc.right + 6);
     lp.setAttribute('y1', pc.top + pc.height / 2);
     lp.setAttribute('x2', cx - 60);
     lp.setAttribute('y2', cy);
 
-    // Ingredients card: line from its left edge mid → centre
     const li = document.getElementById('line-ing');
     li.setAttribute('x1', ic.left - 6);
     li.setAttribute('y1', ic.top + ic.height / 2);
@@ -531,23 +581,37 @@
     }, 500);
   }
 
-  // ── Main AR start ──────────────────────────────────────────────────────
-  async function startAR() {
-    const btn    = document.getElementById('start-btn');
-    const errBox = document.getElementById('err-box');
+  // ── Show/hide loading overlay ──────────────────────────────────────────
+  function showLoading() {
+    document.getElementById('loading-overlay').style.display = 'flex';
+  }
 
-    btn.textContent = 'Starting…';
-    btn.disabled = true;
-    errBox.style.display = 'none';
+  function hideLoading() {
+    const overlay = document.getElementById('loading-overlay');
+    overlay.classList.add('fade-out');
+    setTimeout(() => {
+      overlay.style.display = 'none';
+      overlay.classList.remove('fade-out');
+    }, 600);
+  }
 
-    // Explicit camera permission request (required before autoStart)
+  // ── Request camera permission ──────────────────────────────────────────
+  async function requestCameraPermission() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
         audio: false
       });
+      // Stop immediately after confirming permission
       stream.getTracks().forEach(t => t.stop());
+      cameraDenied = false;
+      return true;
     } catch (err) {
+      cameraDenied = true;
       let msg = '⚠ Camera error: ';
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         msg += 'Permission denied.\n\nFix: tap the lock/camera icon in your browser address bar → Allow → reload.';
@@ -558,40 +622,84 @@
       } else {
         msg += err.name + ': ' + err.message;
       }
-      errBox.textContent = msg;
+      return { error: msg };
+    }
+  }
+
+  // ── Main AR start function ─────────────────────────────────────────────
+  async function startAR() {
+    const btn    = document.getElementById('start-btn');
+    const errBox = document.getElementById('err-box');
+
+    btn.textContent = 'Starting…';
+    btn.disabled = true;
+    errBox.style.display = 'none';
+    showLoading();
+
+    // Step 1: Request camera permission
+    const permResult = await requestCameraPermission();
+    if (permResult.error) {
+      errBox.textContent = permResult.error;
       errBox.style.display = 'block';
       btn.textContent = 'Try Again';
       btn.disabled = false;
+      hideLoading();
       return;
     }
 
-    // Show AR
+    // Step 2: Show AR UI and prepare scene
     document.getElementById('start-screen').style.display = 'none';
     document.getElementById('ar-wrapper').classList.add('active');
     document.getElementById('hud').style.display     = 'block';
     document.getElementById('reticle').style.display = 'block';
     document.getElementById('caption').style.display = 'block';
 
-    const scene  = document.getElementById('ar-scene');
-    const target = document.getElementById('ar-target');
+    // Get scene and target references
+    arScene = document.getElementById('ar-scene');
+    arTarget = document.getElementById('ar-target');
 
-    scene.addEventListener('arReady', () => console.log('[AR] Ready'));
+    // Step 3: Set up AR event listeners (only once)
+    if (!arInitialized) {
+      setupAREventListeners();
+      arInitialized = true;
+    }
 
-    scene.addEventListener('arError', (e) => {
-      console.error('[AR] Error:', e.detail);
-      document.getElementById('ar-wrapper').classList.remove('active');
-      document.getElementById('hud').style.display     = 'none';
-      document.getElementById('reticle').style.display = 'none';
-      document.getElementById('caption').style.display = 'none';
-      hideCards();
-      document.getElementById('start-screen').style.display = 'flex';
-      errBox.textContent = 'AR error: make sure targets.mind and dish.glb are uploaded to the same folder.\n\nDetail: ' + (e.detail || 'unknown');
-      errBox.style.display = 'block';
-      btn.textContent = 'Try Again';
-      btn.disabled = false;
+    // Step 4: Start the AR scene
+    // MindAR's autoStart: false requires manual .start()
+    // Wait a tick for A-Frame to be fully ready
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    try {
+      const controller = arScene.systems['mindar-image'].controller;
+      if (controller) {
+        await controller.start();
+        console.log('[AR] Controller started successfully');
+        // Hide loading after a brief moment to show smooth transition
+        setTimeout(() => hideLoading(), 300);
+      } else {
+        throw new Error('MindAR controller not initialized');
+      }
+    } catch (err) {
+      console.error('[AR] Failed to start controller:', err);
+      handleARError(err);
+    }
+  }
+
+  // ── AR event listener setup ────────────────────────────────────────────
+  function setupAREventListeners() {
+    if (!arScene || !arTarget) return;
+
+    arScene.addEventListener('arReady', () => {
+      console.log('[AR] Scene ready');
     });
 
-    target.addEventListener('targetFound', () => {
+    arScene.addEventListener('arError', (e) => {
+      console.error('[AR] Scene error:', e.detail);
+      handleARError(e.detail);
+    });
+
+    arTarget.addEventListener('targetFound', () => {
+      console.log('[AR] Target found');
       document.getElementById('reticle').classList.add('hidden');
       document.getElementById('caption').classList.add('visible');
       document.getElementById('scan-text').textContent = 'Target locked';
@@ -601,7 +709,8 @@
       showCards();
     });
 
-    target.addEventListener('targetLost', () => {
+    arTarget.addEventListener('targetLost', () => {
+      console.log('[AR] Target lost');
       document.getElementById('reticle').classList.remove('hidden');
       document.getElementById('caption').classList.remove('visible');
       document.getElementById('scan-text').textContent = 'Scan marker';
@@ -617,6 +726,43 @@
       }
     });
   }
+
+  // ── AR error handler ───────────────────────────────────────────────────
+  function handleARError(detail) {
+    const btn    = document.getElementById('start-btn');
+    const errBox = document.getElementById('err-box');
+
+    hideLoading();
+    document.getElementById('ar-wrapper').classList.remove('active');
+    document.getElementById('hud').style.display     = 'none';
+    document.getElementById('reticle').style.display = 'none';
+    document.getElementById('caption').style.display = 'none';
+    hideCards();
+
+    document.getElementById('start-screen').style.display = 'flex';
+    errBox.textContent = 'AR initialization error.\n\nMake sure:\n• targets.mind is uploaded\n• dish2.glb is uploaded\n• Both files are in the same folder\n\nDetail: ' + (detail || 'unknown error');
+    errBox.style.display = 'block';
+    btn.textContent = 'Try Again';
+    btn.disabled = false;
+  }
+
+  // ── Mobile-specific fixes ──────────────────────────────────────────────
+  // Prevent certain iOS zoom/scroll behaviors during AR
+  document.addEventListener('touchmove', (e) => {
+    if (document.getElementById('ar-wrapper').classList.contains('active')) {
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  // Ensure viewport doesn't resize on iOS address bar hide/show
+  window.addEventListener('orientationchange', () => {
+    if (document.getElementById('ar-wrapper').classList.contains('active')) {
+      setTimeout(() => {
+        document.getElementById('ar-scene').style.width  = '100vw';
+        document.getElementById('ar-scene').style.height = '100vh';
+      }, 100);
+    }
+  });
 </script>
 
 </body>
